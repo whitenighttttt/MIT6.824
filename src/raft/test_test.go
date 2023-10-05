@@ -131,12 +131,17 @@ func TestBasicAgree2B(t *testing.T) {
 	cfg.begin("Test (2B): basic agreement")
 
 	iters := 3
+
+	// 测试 3次
 	for index := 1; index < iters+1; index++ {
+		fmt.Println("TestBasicAgree2B第",index,"轮测试")
+		// 检测start函数调用前，有几个节点提交了日志，因为调用start函数相当于tester
+		// 生成日志项并且投放给主节点，所以这里的没有启动start就没有日志项产生
 		nd, _ := cfg.nCommitted(index)
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-
+		// 检查索引大多数节点对同一个日志，存储的位置是否和产生时的顺序相同
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
@@ -144,6 +149,7 @@ func TestBasicAgree2B(t *testing.T) {
 	}
 
 	cfg.end()
+	fmt.Println("testB1 完成！")
 }
 
 // check, based on counting bytes of RPCs, that

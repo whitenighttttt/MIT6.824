@@ -487,13 +487,16 @@ func (cfg *config) checkNoLeader() {
 // how many servers think a log entry is committed?
 func (cfg *config) nCommitted(index int) (int, interface{}) {
 	count := 0
-	var cmd interface{} = nil
+	var cmd interface{} = nil // 用来记录在indexz上各个示例存储的相同日志项
+	// 遍历Raft实例
 	for i := 0; i < len(cfg.rafts); i++ {
 		if cfg.applyErr[i] != "" {
 			cfg.t.Fatal(cfg.applyErr[i])
 		}
 
 		cfg.mu.Lock()
+		// logs[i][index]为存储检测线程提取到的每一个raft节点的提交项，i是id,index是生成的日志项
+		// 如果所有节点index都提交了，显然有log[i][0]=log[i][1]=...
 		cmd1, ok := cfg.logs[i][index]
 		cfg.mu.Unlock()
 
