@@ -1,13 +1,94 @@
 package kvraft
 
-import "6.5840/labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"6.5840/labrpc"
+	"crypto/rand"
+	"math/big"
+)
 
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
-	// You will have to modify this struct.
+
+	seqId    int
+	leaderId int // 上一次RPC发现的主机iD
+	clientId int64 // 客户端id
+}
+
+// 初始化
+func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
+	ck := new(Clerk)
+	ck.servers = servers
+	// You'll have to add code here.
+	ck.clientId = nrand()
+	//ck.leaderId = mathrand.Intn(len(ck.servers))
+	ck.leaderId = int(nrand()) % len(ck.servers)
+
+	return ck
+}
+// 正常查询到结果不存在才会结束该次get，否则一直重试
+func (ck *Clerk) Get(key string) string {
+	// You will have to modify this function.
+	ck.seqId++
+	args := GetArgs{
+		Key: key, 
+		ClientId: ck.clientId,
+		SeqId: ck.seqId
+	}
+	serverId := ck.leaderId
+	for {
+		reply := GetReply{}
+		ok := ck.servers[serverId].Call("KVServer.Get", &args, &reply)
+
+		if ok {
+			if reply.Err == ErrNoKey {
+				ck.leaderId = serverId
+				return ""
+			} else if reply.Err == OK {
+				ck.leaderId = serverId
+				return reply.Value
+			} else if reply.Err == ErrWrongLeader {
+				serverId = (serverId + 1) % len(ck.servers)
+				continue
+			}
+		}
+
+		// 节点发生crash等原因
+		serverId = (serverId + 1) % len(ck.servers)
+
+	}
+}
+
+// 同上所示
+func (ck *Clerk) PutAppend(key string, value string, op string) {
+
+	ck.seqId++
+	serverId := ck.leaderId
+	args := PutAppendArgs{
+		Key: key, 
+		Value: value, 
+		Op: op, 
+		ClientId: ck.clientId, 
+		SeqId: ck.seqId
+	}
+	for {
+
+		reply := PutAppendReply{}
+		ok := ck.servers[serverId].Call("KVServer.PutAppend", &args, &reply)
+		if ok {
+			if reply.Err == OK {
+				ck.leaderId = serverId
+				return
+			} else if reply.Err == ErrWrongLeader {
+				serverId = (serverId + 1) % len(ck.servers)
+				continue
+			}
+		}
+
+		serverId = (serverId + 1) % len(ck.servers)
+
+	}
+
 }
 
 func nrand() int64 {
@@ -16,45 +97,9 @@ func nrand() int64 {
 	x := bigx.Int64()
 	return x
 }
-
-func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
-	ck := new(Clerk)
-	ck.servers = servers
-	// You'll have to add code here.
-	return ck
-}
-
-// fetch the current value for a key.
-// returns "" if the key does not exist.
-// keeps trying forever in the face of all other errors.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-func (ck *Clerk) Get(key string) string {
-
-	// You will have to modify this function.
-	return ""
-}
-
-// shared by Put and Append.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// You will have to modify this function.
-}
-
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, "Put")
+	ck.PutAppend(key, value, PutOp)
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, "Append")
+	ck.PutAppend(key, value, AppendOp)
 }

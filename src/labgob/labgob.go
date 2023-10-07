@@ -55,6 +55,13 @@ func (dec *LabDecoder) Decode(e interface{}) error {
 	return dec.gob.Decode(e)
 }
 
+func (dec *LabDecoder) DecodeWithPrint(id int, name string, e interface{}) error {
+	data := dec.Decode(e)
+	//fmt.Printf("\n %d is decoding the persisted %v data: %v \n", id, name, data)
+	return data
+}
+
+
 func Register(value interface{}) {
 	checkValue(value)
 	gob.Register(value)
