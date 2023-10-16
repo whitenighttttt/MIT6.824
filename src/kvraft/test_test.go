@@ -1,16 +1,19 @@
 package kvraft
 
-import "6.5840/porcupine"
-import "6.5840/models"
-import "testing"
-import "strconv"
-import "time"
-import "math/rand"
-import "strings"
-import "sync"
-import "sync/atomic"
-import "fmt"
-import "io/ioutil"
+import (
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"6.5840/models"
+	"6.5840/porcupine"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -37,17 +40,11 @@ func (log *OpLog) Read() []porcupine.Operation {
 	return ops
 }
 
-// to make sure timestamps use the monotonic clock, instead of computing
-// absolute timestamps with `time.Now().UnixNano()` (which uses the wall
-// clock), we measure time relative to `t0` using `time.Since(t0)`, which uses
-// the monotonic clock
-var t0 = time.Now()
-
 // get/put/putappend that keep counts
 func Get(cfg *config, ck *Clerk, key string, log *OpLog, cli int) string {
-	start := int64(time.Since(t0))
+	start := time.Now().UnixNano()
 	v := ck.Get(key)
-	end := int64(time.Since(t0))
+	end := time.Now().UnixNano()
 	cfg.op()
 	if log != nil {
 		log.Append(porcupine.Operation{
@@ -63,9 +60,10 @@ func Get(cfg *config, ck *Clerk, key string, log *OpLog, cli int) string {
 }
 
 func Put(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) {
-	start := int64(time.Since(t0))
+	start := time.Now().UnixNano()
 	ck.Put(key, value)
-	end := int64(time.Since(t0))
+	DPrintf(1111, "调用客户端%d的put方法, key is %v and value is %v", ck.clientId, key, value)
+	end := time.Now().UnixNano()
 	cfg.op()
 	if log != nil {
 		log.Append(porcupine.Operation{
@@ -79,9 +77,10 @@ func Put(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) 
 }
 
 func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) {
-	start := int64(time.Since(t0))
+	start := time.Now().UnixNano()
+	DPrintf(1111, "调用客户端%d的append方法, key是%v, value是%v", ck.clientId, key, value)
 	ck.Append(key, value)
-	end := int64(time.Since(t0))
+	end := time.Now().UnixNano()
 	cfg.op()
 	if log != nil {
 		log.Append(porcupine.Operation{
@@ -99,6 +98,8 @@ func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
 	if v != value {
 		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 	}
+	DPrintf(11111, "get操作检查数据库中键为%v的值%v为正确值,等于%v", key, v, value)
+
 }
 
 // a client runs the function f and then signals it is done
@@ -256,7 +257,7 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 		// log.Printf("Iteration %v\n", i)
 		atomic.StoreInt32(&done_clients, 0)
 		atomic.StoreInt32(&done_partitioner, 0)
-		go spawn_clients_and_wait(t, cfg, nclients, func(cli int, myck *Clerk, t *testing.T) {
+		tmpfunc := func(cli int, myck *Clerk, t *testing.T) {
 			j := 0
 			defer func() {
 				clnts[cli] <- j
@@ -266,6 +267,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				Put(cfg, myck, strconv.Itoa(cli), last, opLog, cli)
 			}
 			for atomic.LoadInt32(&done_clients) == 0 {
+				DPrintf(1111, "the %d th iter, printing done_clients:%v", i, atomic.LoadInt32(&done_clients))
+
 				var key string
 				if randomkeys {
 					key = strconv.Itoa(rand.Intn(nclients))
@@ -294,7 +297,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 					}
 				}
 			}
-		})
+		}
+		go spawn_clients_and_wait(t, cfg, nclients, tmpfunc)
 
 		if partitions {
 			// Allow the clients to perform some operations without interruption
@@ -302,6 +306,7 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			go partitioner(t, cfg, ch_partitioner, &done_partitioner)
 		}
 		time.Sleep(5 * time.Second)
+		DPrintf(1111, "tell clients to quit...")
 
 		atomic.StoreInt32(&done_clients, 1)     // tell clients to quit
 		atomic.StoreInt32(&done_partitioner, 1) // tell partitioner to quit
@@ -319,18 +324,19 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 		}
 
 		if crash {
-			// log.Printf("shutdown servers\n")
+			//log.Printf("ready to shutdown all servers\n")
 			for i := 0; i < nservers; i++ {
 				cfg.ShutdownServer(i)
 			}
 			// Wait for a while for servers to shutdown, since
 			// shutdown isn't a real crash and isn't instantaneous
 			time.Sleep(electionTimeout)
-			// log.Printf("restart servers\n")
+			//log.Printf("restart all servers\n")
 			// crash and re-start all
 			for i := 0; i < nservers; i++ {
 				cfg.StartServer(i)
 			}
+			//log.Printf("reconnect all servers\n")
 			cfg.ConnectAll()
 		}
 
@@ -342,7 +348,7 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			// 	log.Printf("Warning: client %d managed to perform only %d put operations in 1 sec?\n", i, j)
 			// }
 			key := strconv.Itoa(i)
-			// log.Printf("Check %v for client %d\n", j, i)
+			//log.Printf("Check %v for client %d\n", j, i)
 			v := Get(cfg, ck, key, opLog, 0)
 			if !randomkeys {
 				checkClntAppends(t, i, v, j)
@@ -405,9 +411,10 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	start := time.Now()
 	for i := 0; i < numOps; i++ {
 		ck.Append("x", "x 0 "+strconv.Itoa(i)+" y")
+		DPrintf(900, "[tester]: append item %v", i)
 	}
 	dur := time.Since(start)
-
+	DPrintf(900, "[tester]: append end time=%v", dur)
 	v := ck.Get("x")
 	checkClntAppends(t, 0, v, numOps)
 
@@ -417,11 +424,12 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	const timePerOp = heartbeatInterval / opsPerInterval
 	if dur > numOps*timePerOp {
 		t.Fatalf("Operations completed too slowly %v/op > %v/op\n", dur/numOps, timePerOp)
+	} else {
+		DPrintf(91111, "Operations completed within %v/op in contrast with %v/op\n", dur/numOps, timePerOp)
 	}
 
 	cfg.end()
 }
-
 func TestBasic3A(t *testing.T) {
 	// Test: one client (3A) ...
 	GenericTest(t, "3A", 1, 5, false, false, false, -1, false)
@@ -625,14 +633,16 @@ func TestSnapshotRPC3B(t *testing.T) {
 	if sz > 8*maxraftstate {
 		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
 	}
-
+	DPrintf(11111, "检查到主分区的节点已经丢弃大部分旧日志, 并且准备开始新一轮的分区")
 	// now make group that requires participation of
 	// lagging server, so that it has to catch up.
 	cfg.partition([]int{0, 2}, []int{1})
 	{
 		ck1 := cfg.makeClient([]int{0, 2})
+		DPrintf(11111, "成功创建只向由0和2组成的主分区发送消息的客户端")
 		Put(cfg, ck1, "c", "C", nil, -1)
 		Put(cfg, ck1, "d", "D", nil, -1)
+		DPrintf(11111, "成功进行两次put操作")
 		check(cfg, t, ck1, "a", "A")
 		check(cfg, t, ck1, "b", "B")
 		check(cfg, t, ck1, "1", "1")
